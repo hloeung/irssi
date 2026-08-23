@@ -164,6 +164,44 @@ static void grab_who(CLIENT_REC *client, const char *channel)
 	g_string_free(arg, TRUE);
 }
 
+static void handle_client_cap(CLIENT_REC *client, const char *args)
+{
+	char *subcmd, *cap_args;
+	const char *target_nick;
+
+	subcmd = g_strdup(args);
+	cap_args = strchr(subcmd, ' ');
+	if (cap_args != NULL) {
+		*cap_args++ = '\0';
+		while (*cap_args == ' ')
+			cap_args++;
+	} else {
+		cap_args = "";
+	}
+
+	target_nick = client->nick != NULL ? client->nick : "*";
+
+	if (g_ascii_strcasecmp(subcmd, "LS") == 0) {
+		proxy_outdata(client, ":%s CAP %s LS :\r\n", client->proxy_address, target_nick);
+	} else if (g_ascii_strcasecmp(subcmd, "REQ") == 0) {
+		const char *req = cap_args;
+
+		while (*req == ' ' || *req == ':')
+			req++;
+
+		if (*req != '\0') {
+			proxy_outdata(client, ":%s CAP %s NAK :%s\r\n", client->proxy_address,
+			              target_nick, req);
+		}
+	} else if (g_ascii_strcasecmp(subcmd, "LIST") == 0) {
+		proxy_outdata(client, ":%s CAP %s LIST :\r\n", client->proxy_address, target_nick);
+	} else if (g_ascii_strcasecmp(subcmd, "END") == 0) {
+		/* CAP negotiation complete */
+	}
+
+	g_free(subcmd);
+}
+
 static void handle_client_connect_cmd(CLIENT_REC *client,
                                       const char *cmd, const char *args)
 {
@@ -215,6 +253,8 @@ static void handle_client_connect_cmd(CLIENT_REC *client,
 		client->nick = g_strdup(args);
 	} else if (g_strcmp0(cmd, "USER") == 0) {
 		client->user_sent = TRUE;
+	} else if (g_strcmp0(cmd, "CAP") == 0) {
+		handle_client_cap(client, args);
 	}
 
 	if (client->nick != NULL && client->user_sent) {
@@ -238,6 +278,11 @@ static void handle_client_cmd(CLIENT_REC *client, char *cmd, char *args,
 	GSList *tmp;
 	if (!client->connected) {
 		handle_client_connect_cmd(client, cmd, args);
+		return;
+	}
+
+	if (g_strcmp0(cmd, "CAP") == 0) {
+		handle_client_cap(client, args);
 		return;
 	}
 
